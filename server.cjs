@@ -50,7 +50,7 @@ app.post('/generate-gemini-test-cases', async (req, res) => {
     if (!input) return res.status(400).json({ error: 'Input is required' });
 
     // Select the Gemini model you want to use
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.0-pro' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
 
     // Generate content from the prompt
     const result = await model.generateContent(input);
