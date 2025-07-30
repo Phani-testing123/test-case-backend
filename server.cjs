@@ -2,8 +2,9 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const OpenAI = require('openai');
-// --- NEW: Import the Google Generative AI library ---
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+// --- NEW: Import the Anthropic (Claude) library ---
+const Anthropic = require('@anthropic-ai/sdk');
 
 dotenv.config();
 
@@ -18,8 +19,14 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-// --- NEW: Initialize the Gemini client ---
+// Initialize Gemini (Your existing code)
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+// --- NEW: Initialize the Anthropic (Claude) client ---
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+});
+
 
 // Your existing OpenAI endpoint
 app.post('/generate-test-cases', async (req, res) => {
@@ -38,30 +45,46 @@ app.post('/generate-test-cases', async (req, res) => {
     const result = completion.choices[0]?.message?.content || 'No response';
     res.json({ output: result });
   } catch (error) {
-    console.error('Error generating test cases:', error.message);
-    res.status(500).json({ error: 'Failed to generate test cases' });
+    console.error('OpenAI Error:', error.message);
+    res.status(500).json({ error: 'Failed to generate test cases from OpenAI' });
   }
 });
 
-// --- NEW: Add the Gemini endpoint ---
+// Your existing Gemini endpoint
 app.post('/generate-gemini-test-cases', async (req, res) => {
   try {
     const { input } = req.body;
     if (!input) return res.status(400).json({ error: 'Input is required' });
 
-    // Select the Gemini model you want to use
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
-
-    // Generate content from the prompt
     const result = await model.generateContent(input);
     const response = result.response;
     const text = response.text();
     
-    // Send back the response in the same format as your OpenAI endpoint
     res.json({ output: text });
   } catch (error) {
     console.error('Gemini Error:', error.message);
     res.status(500).json({ error: 'Failed to generate test cases from Gemini' });
+  }
+});
+
+// --- NEW: Add the Anthropic (Claude) endpoint ---
+app.post('/generate-claude-test-cases', async (req, res) => {
+  try {
+    const { input } = req.body;
+    if (!input) return res.status(400).json({ error: 'Input is required' });
+
+    const msg = await anthropic.messages.create({
+      model: "claude-3-5-sonnet-20240620", // The latest and most powerful model
+      max_tokens: 4096,
+      messages: [{ role: "user", content: input }],
+    });
+
+    const result = msg.content[0]?.text || 'No response';
+    res.json({ output: result });
+  } catch (error) {
+    console.error('Claude Error:', error.message);
+    res.status(500).json({ error: 'Failed to generate test cases from Claude' });
   }
 });
 
