@@ -21,7 +21,7 @@ app.post('/generate-test-cases', async (req, res) => {
     if (!input) return res.status(400).json({ error: 'Input is required' });
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4',
+      model: 'gpt-4-1106-preview',
       messages: [{
         role: 'user',
         content: `Generate test cases in plain text based on the following requirement:\n${input}`
