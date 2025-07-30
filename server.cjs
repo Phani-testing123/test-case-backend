@@ -1,71 +1,58 @@
+// server.cjs
+
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const dotenv = require('dotenv');
-const OpenAI = require('openai');
-// --- NEW: Import the Google Generative AI library ---
+const { OpenAI } = require('openai');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-
-dotenv.config();
+// --- NEW: Import Azure OpenAI library ---
+const { OpenAIClient, AzureKeyCredential } = require("@azure/openai");
 
 const app = express();
-const PORT = process.env.PORT || 5000;
-
 app.use(cors());
 app.use(express.json());
 
-// Initialize OpenAI (Your existing code)
+// Initialize OpenAI client
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
-// --- NEW: Initialize the Gemini client ---
+// Initialize Gemini client
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Your existing OpenAI endpoint
+// --- Your existing OpenAI endpoint ---
 app.post('/generate-test-cases', async (req, res) => {
-  try {
-    const { input } = req.body;
-    if (!input) return res.status(400).json({ error: 'Input is required' });
-
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
-      messages: [{
-        role: 'user',
-        content: `Generate test cases in plain text based on the following requirement:\n${input}`
-      }]
-    });
-
-    const result = completion.choices[0]?.message?.content || 'No response';
-    res.json({ output: result });
-  } catch (error) {
-    console.error('Error generating test cases:', error.message);
-    res.status(500).json({ error: 'Failed to generate test cases' });
-  }
+  // ... (your existing openai logic)
 });
 
-// --- NEW: Add the Gemini endpoint ---
+// --- Your existing Gemini endpoint ---
 app.post('/generate-gemini-test-cases', async (req, res) => {
+  // ... (your existing gemini logic)
+});
+
+// --- NEW: Define the Copilot (Azure OpenAI) Endpoint ---
+app.post('/generate-copilot-test-cases', async (req, res) => {
   try {
     const { input } = req.body;
     if (!input) return res.status(400).json({ error: 'Input is required' });
 
-    // Select the Gemini model you want to use
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
+    // Initialize Azure OpenAI Client
+    const client = new OpenAIClient(
+      process.env.AZURE_OPENAI_ENDPOINT,
+      new AzureKeyCredential(process.env.AZURE_OPENAI_KEY)
+    );
 
-    // Generate content from the prompt
-    const result = await model.generateContent(input);
-    const response = result.response;
-    const text = response.text();
-    
-    // Send back the response in the same format as your OpenAI endpoint
-    res.json({ output: text });
+    const { choices } = await client.getChatCompletions(
+      process.env.AZURE_OPENAI_DEPLOYMENT_NAME, // This is your model deployment name
+      [{ role: "user", content: input }]
+    );
+
+    res.json({ output: choices[0]?.message?.content || "" });
   } catch (error) {
-    console.error('Gemini Error:', error.message);
-    res.status(500).json({ error: 'Failed to generate test cases from Gemini' });
+    console.error('Copilot (Azure OpenAI) Error:', error);
+    res.status(500).json({ error: 'Failed to generate from Copilot' });
   }
 });
 
-
-app.get('/', (req, res) => res.send('Backend is running!'));
-
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => console.log(`Server is running on port ${PORT}`));
