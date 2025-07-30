@@ -1,40 +1,57 @@
-// server.cjs (at the very top)
-require("dotenv").config();       // ← load .env
+import express from 'express';
+import dotenv from 'dotenv';
+import cors from 'cors';
+import OpenAI from 'openai';
 
-const express = require("express");
-const cors    = require("cors");
-const axios   = require("axios");
+dotenv.config();
 
-const app  = express();
-const port = 5000;
+const app = express();
+const PORT = process.env.PORT || 5000;
 
-app.use(cors());
+// ✅ Middleware
+app.use(cors({
+  origin: 'https://test-case-generator-one.vercel.app',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type'],
+}));
 app.use(express.json());
 
-app.post("/generate-test-cases", async (req, res) => {
-  const userInput = req.body.input;
+// ✅ OpenAI setup
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
+
+// ✅ Route for generating test cases
+app.post('/generate-test-cases', async (req, res) => {
   try {
-    const aiResponse = await axios.post(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        model: "gpt-4",
-        messages: [
-          { role: "system", content: "You are a QA expert. Generate Gherkin-style test cases." },
-          { role: "user",   content: userInput }
-        ]
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,  // ← updated here
-          "Content-Type": "application/json"
-        }
-      }
-    );
-    res.json({ output: aiResponse.data.choices[0].message.content });
-  } catch (err) {
-    console.error("OpenAI call failed:", err.response?.data || err.message);
-    res.status(500).json({ error: "Failed to generate test cases" });
+    const { input } = req.body;
+
+    if (!input) {
+      return res.status(400).json({ error: 'Input is required' });
+    }
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-3.5-turbo',
+      messages: [{
+        role: 'user',
+        content: `Generate test cases in plain text based on the following requirement:\n${input}`
+      }]
+    });
+
+    const result = completion.choices[0]?.message?.content || 'No response';
+    res.json({ output: result });
+
+  } catch (error) {
+    console.error('Error generating test cases:', error.message);
+    res.status(500).json({ error: 'Failed to generate test cases' });
   }
 });
 
-app.listen(port, () => console.log(`✅ Server running at http://localhost:${port}`));
+// ✅ Optional health check
+app.get('/', (req, res) => {
+  res.send('Backend is running!');
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
