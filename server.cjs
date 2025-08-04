@@ -3,7 +3,6 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const OpenAI = require('openai');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-// --- NEW: Import the Anthropic (Claude) library ---
 const Anthropic = require('@anthropic-ai/sdk');
 
 dotenv.config();
@@ -14,21 +13,42 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Initialize OpenAI (Your existing code)
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
-
-// Initialize Gemini (Your existing code)
+// --- Model initializations ---
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// --- NEW: Initialize the Anthropic (Claude) client ---
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
+//Playwright AI Code
+
+app.post('/ai-generate-playwright', async (req, res) => {
+  try {
+    const { scenario } = req.body;
+    if (!scenario) return res.status(400).json({ error: 'Scenario is required' });
+
+    const prompt = `
+You are a senior Playwright automation engineer. Convert the following Gherkin scenario into a Playwright test function in JavaScript. For steps where the selector or page isn't clear, add a TODO comment.
+
+Gherkin Scenario:
+${scenario}
+
+Only output the code for the Playwright test function. Do not explain your answer.
+    `;
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o', // Or gpt-3.5-turbo if you wish
+      messages: [{ role: 'user', content: prompt }]
+    });
+
+    const code = completion.choices[0]?.message?.content || 'No code generated.';
+    res.json({ code });
+  } catch (error) {
+    console.error('Playwright AI Error:', error.message);
+    res.status(500).json({ error: 'Failed to generate Playwright code' });
+  }
 });
 
 
-// Your existing OpenAI endpoint
+// --- OpenAI ---
 app.post('/generate-test-cases', async (req, res) => {
   try {
     const { input } = req.body;
@@ -38,7 +58,7 @@ app.post('/generate-test-cases', async (req, res) => {
       model: 'gpt-3.5-turbo',
       messages: [{
         role: 'user',
-        content: `Generate test cases in plain text based on the following requirement:\n${input}`
+        content: input
       }]
     });
 
@@ -50,7 +70,7 @@ app.post('/generate-test-cases', async (req, res) => {
   }
 });
 
-// Your existing Gemini endpoint
+// --- Gemini ---
 app.post('/generate-gemini-test-cases', async (req, res) => {
   try {
     const { input } = req.body;
@@ -58,9 +78,7 @@ app.post('/generate-gemini-test-cases', async (req, res) => {
 
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
     const result = await model.generateContent(input);
-    const response = result.response;
-    const text = response.text();
-    
+    const text = result.response.text();
     res.json({ output: text });
   } catch (error) {
     console.error('Gemini Error:', error.message);
@@ -68,14 +86,14 @@ app.post('/generate-gemini-test-cases', async (req, res) => {
   }
 });
 
-// --- NEW: Add the Anthropic (Claude) endpoint ---
+// --- Claude ---
 app.post('/generate-claude-test-cases', async (req, res) => {
   try {
     const { input } = req.body;
     if (!input) return res.status(400).json({ error: 'Input is required' });
 
     const msg = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20240620", // The latest and most powerful model
+      model: "claude-3-5-sonnet-20240620",
       max_tokens: 4096,
       messages: [{ role: "user", content: input }],
     });
@@ -90,5 +108,4 @@ app.post('/generate-claude-test-cases', async (req, res) => {
 
 
 app.get('/', (req, res) => res.send('Backend is running!'));
-
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
