@@ -4,6 +4,7 @@ const dotenv = require('dotenv');
 const OpenAI = require('openai');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Anthropic = require('@anthropic-ai/sdk');
+const { chromium } = require('playwright'); // <-- NEW!
 
 dotenv.config();
 
@@ -18,8 +19,158 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-//Playwright AI Code
+const playwright = require('playwright'); // Make sure playwright is required
 
+app.post('/signup-agent', async (req, res) => {
+  const { count } = req.body;
+  let emails = [];
+
+  try {
+    for (let i = 0; i < (count || 1); i++) {
+      const browser = await playwright.chromium.launch({ headless: true });
+      const page = await browser.newPage();
+      let step = 1;
+      try {
+        // 1. Open Dev URL
+        console.log(`[Step ${step++}] Opening URL`);
+        await page.goto('https://main-bk-us-web.com.rbi.tools/', { waitUntil: 'load' });
+        //await page.screenshot({ path: `step${step}-opened-url.png` });
+
+        // 2. Enter Password (rbi-tech)
+        console.log(`[Step ${step++}] Entering password`);
+        await page.fill('input[type="password"]', 'rbi-tech');
+        console.log(`[Step ${step++}] Clicking Submit`);
+        await page.getByRole('button', { name: 'Submit' }).click();
+        await page.waitForTimeout(2000);
+
+        // 3. Handle Cookies Modal
+        let cookieBannerStillVisible = false;
+        try {
+          console.log(`[Step ${step++}] Trying to close cookie popup (close btn)`);
+          await page.waitForSelector('button[aria-label="Close"]', { timeout: 4000 });
+          await page.click('button[aria-label="Close"]');
+          await page.waitForTimeout(800);
+        } catch {
+          console.log('No cookie popup present or already closed.');
+        }
+        // Remove overlay if still present (and take screenshot)
+        await page.evaluate(() => {
+          const ot = document.getElementById('onetrust-consent-sdk');
+          if (ot) ot.remove();
+        });
+
+        // 4. Click Continue (Env screen)
+        try {
+          if (await page.isVisible('div[tabindex="0"]', { hasText: "Continue" })) {
+            console.log(`[Step ${step++}] Clicking Continue on env screen`);
+            await page.getByText('Continue').click();
+            await page.waitForTimeout(1000);
+          }
+        } catch (e) {
+          console.log('No environment continue screen');
+        }
+
+        // --- Close Cookie Banner AGAIN if still visible (on Royal Perks) ---
+        try {
+          console.log(`[Step ${step++}] Double-checking/Closing cookie popup again if still visible...`);
+          await page.waitForSelector('button[aria-label="Close"]', { timeout: 2000 });
+          await page.click('button[aria-label="Close"]');
+          await page.waitForTimeout(800);
+        } catch {
+          console.log('Cookie modal did not reappear');
+        }
+        // Remove overlay (again)
+        await page.evaluate(() => {
+          const ot = document.getElementById('onetrust-consent-sdk');
+          if (ot) ot.remove();
+        });
+     
+
+        // 5. Click Profile Icon
+        console.log(`[Step ${step++}] Clicking Profile Icon`);
+        await page.waitForSelector('button[aria-label="Sign Up or Sign In"]', { timeout: 20000 });
+        await page.click('button[aria-label="Sign Up or Sign In"]');
+        await page.waitForTimeout(1000);
+
+        // --- Close Cookie Banner AGAIN if still visible (just in case) ---
+        try {
+          console.log(`[Step ${step++}] (Final try) Closing cookie popup if STILL visible`);
+          await page.waitForSelector('button[aria-label="Close"]', { timeout: 2000 });
+          await page.click('button[aria-label="Close"]');
+          await page.waitForTimeout(800);
+        } catch {
+          // It's fine
+        }
+        await page.evaluate(() => {
+          const ot = document.getElementById('onetrust-consent-sdk');
+          if (ot) ot.remove();
+        });
+    
+
+        // 6. Click "Continue with Email"
+        await page.waitForSelector('button[aria-label="Sign Up or Sign In"]', { timeout: 20000 });
+        await page.click('button[aria-label="Sign Up or Sign In"]');
+        await page.waitForTimeout(1000);
+        console.log(`[Step ${step++}] Clicking Continue with Email`);
+        await page.getByRole('button', { name: 'Continue with Email' }).click();
+        await page.waitForTimeout(1000);
+  
+
+        // 7. Enter unique email
+  
+      const rand = Math.floor(Math.random() * 1e8);
+      const email = `aiqatest${rand}@yopmail.com`;
+      console.log(`[Step ${step++}] Entering email: ${email}`);
+      await page.fill('input[type="email"]', email);
+
+
+
+        // 8. Click "Sign Up / Sign In"
+        console.log(`[Step ${step++}] Clicking Sign Up / Sign In`);
+        await page.click('button[data-testid="signin-button"]');
+        await page.waitForTimeout(1500);
+
+        // 9. Fill Name
+        console.log(`[Step ${step++}] Filling name`);
+       await page.fill('input[data-testid="signup-name-input"]', 'RBI DO NOT MAKE');
+
+        // 10. Check "I agree"
+        console.log(`[Step ${step++}] Checking Agree To Terms`);
+        await page.click('div[data-testid="signup-agreeToTermsOfService"]');
+        await page.waitForTimeout(500);
+
+        // 11. Click "Create an Account"
+        console.log(`[Step ${step++}] Clicking Create an Account`);
+        await page.getByRole('button', { name: 'Create an Account' }).click();
+        await page.waitForTimeout(2000);
+
+        emails.push(email);
+        console.log(`[DONE] Account created: ${email}`);
+        await browser.close();
+
+      } catch (err) {
+        // Error: Try to capture screenshot before closing browser
+        try {
+          if (!page.isClosed()) {
+            await page.screenshot({ path: `step${step}-ERROR.png` });
+          }
+        } catch (e) {
+          console.error('Screenshot error (after failure):', e.message);
+        }
+        await browser.close();
+        throw err;
+      }
+    }
+
+    res.json({ success: true, emails });
+  } catch (err) {
+    console.error('Signup agent failed:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
+// --- Playwright AI Code ---
 app.post('/ai-generate-playwright', async (req, res) => {
   try {
     const { scenario } = req.body;
@@ -46,7 +197,6 @@ Only output the code for the Playwright test function. Do not explain your answe
     res.status(500).json({ error: 'Failed to generate Playwright code' });
   }
 });
-
 
 // --- OpenAI ---
 app.post('/generate-test-cases', async (req, res) => {
@@ -105,7 +255,6 @@ app.post('/generate-claude-test-cases', async (req, res) => {
     res.status(500).json({ error: 'Failed to generate test cases from Claude' });
   }
 });
-
 
 app.get('/', (req, res) => res.send('Backend is running!'));
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
