@@ -4,8 +4,7 @@
   "type": "module",
   "main": "server.cjs",
   "scripts": {
-    "start": "node server.cjs",
-    "postinstall": "npx playwright install --with-deps"
+    "start": "node server.cjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.22.0",
