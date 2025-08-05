@@ -4,8 +4,8 @@
   "type": "module",
   "main": "server.cjs",
   "scripts": {
-     "start": "apt-get update && apt-get install -y libgtk-4-1 libgraphene-1.0-0 && node server.js",
-    "postinstall": "playwright install"
+    "start": "node server.cjs",
+    "postinstall": "npx playwright install --with-deps"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.22.0",
