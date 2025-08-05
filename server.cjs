@@ -19,7 +19,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const playwright = require('playwright'); // Make sure playwright is required
+//const playwright = require('playwright'); // Make sure playwright is required
 
 app.post('/signup-agent', async (req, res) => {
   const { count } = req.body;
