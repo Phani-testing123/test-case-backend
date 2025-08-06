@@ -1,10 +1,20 @@
-const express = require('express');
+
 const cors = require('cors');
+const express = require('express');
+// ---> ADD THE CORS CONFIGURATION RIGHT AFTER `const app = express();` <---
+const corsOptions = {
+  // This is the URL of your frontend application.
+  // The backend will now allow requests ONLY from this origin.
+  origin: 'https://test-case-generator-one.vercel.app' 
+};
+app.use(cors(corsOptions));
 const dotenv = require('dotenv');
 const OpenAI = require('openai');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Anthropic = require('@anthropic-ai/sdk');
 const { chromium } = require('playwright'); // <-- NEW!
+
+
 
 dotenv.config();
 
@@ -166,9 +176,15 @@ app.post('/signup-agent', async (req, res) => {
 
     res.json({ success: true, emails });
   } catch (err) {
+    // 1. Log the full technical error for developers in the Render logs
     console.error('Signup agent failed:', err);
-    res.status(500).json({ success: false, error: err.message });
-  }
+    
+    // 2. Send a single, user-friendly error message to the frontend
+    res.status(500).json({ 
+        success: false, 
+        error: "The automation agent failed. This could be due to a change in the website's UI or a network timeout. Please check the server logs for details." 
+    });
+}
 });
 
 // --- Playwright AI Code ---
