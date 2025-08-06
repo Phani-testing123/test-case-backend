@@ -1,27 +1,23 @@
-
-const cors = require('cors');
 const express = require('express');
-// ---> ADD THE CORS CONFIGURATION RIGHT AFTER `const app = express();` <---
-const corsOptions = {
-  // This is the URL of your frontend application.
-  // The backend will now allow requests ONLY from this origin.
-  origin: 'https://test-case-generator-one.vercel.app' 
-};
-app.use(cors(corsOptions));
+const cors = require('cors');
 const dotenv = require('dotenv');
 const OpenAI = require('openai');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Anthropic = require('@anthropic-ai/sdk');
-const { chromium } = require('playwright'); // <-- NEW!
-
-
+// FIX 1: Consolidated Playwright import. We only need this one at the top.
+const playwright = require('playwright'); 
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors());
+const corsOptions = {
+  origin: 'https://test-case-generator-one.vercel.app' 
+};
+app.use(cors(corsOptions));
+
+// FIX 2: Removed the commented-out, redundant app.use(cors()) for cleanliness.
 app.use(express.json());
 
 // --- Model initializations ---
@@ -29,162 +25,135 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+
+// FIX 3: Extracted the repetitive cookie logic into a reusable helper function.
+async function handleCookiePopup(page, step) {
+    try {
+        console.log(`[Step ${step}] Checking for cookie popup...`);
+        const closeButton = page.locator('button[aria-label="Close"]');
+        await closeButton.waitFor({ state: 'visible', timeout: 3000 });
+        console.log(`[Step ${step}] Cookie popup found. Closing it.`);
+        await closeButton.click();
+        // Forcefully remove the overlay in case of issues, as you were doing before.
+        await page.evaluate(() => document.getElementById('onetrust-consent-sdk')?.remove());
+    } catch {
+        console.log(`[Step ${step}] No cookie popup visible or it was already closed.`);
+    }
+}
+
+
 // Endpoint to create test accounts
-
-const playwright = require('playwright'); // Make sure playwright is required
-
 app.post('/signup-agent', async (req, res) => {
   const { count } = req.body;
-  let emails = [];
+  
+  // FIX 4: Improved reporting for successes and failures.
+  const successes = [];
+  const failures = [];
 
+  // FIX 5 (CRITICAL): Launch the browser ONCE, outside the loop.
+  const browser = await playwright.chromium.launch({ headless: true });
+  
   try {
     for (let i = 0; i < (count || 1); i++) {
-      const browser = await playwright.chromium.launch({ headless: true });
+      // FIX 6: Create a new page for each iteration inside the loop.
       const page = await browser.newPage();
       let step = 1;
+      
+      // FIX 7: Use a try/catch block for each individual account.
+      // This prevents one failure from stopping the whole process.
       try {
+        console.log(`\n--- Creating Account #${i + 1} ---`);
+        
         // 1. Open Dev URL
         console.log(`[Step ${step++}] Opening URL`);
-        await page.goto('https://main-bk-us-web.com.rbi.tools/', { waitUntil: 'load' });
-        //await page.screenshot({ path: `step${step}-opened-url.png` });
+        await page.goto('https://main-bk-us-web.com.rbi.tools/', { waitUntil: 'load', timeout: 60000 });
 
-        // 2. Enter Password (rbi-tech)
-        console.log(`[Step ${step++}] Entering password`);
+        // 2. Enter Password
+        console.log(`[Step ${step++}] Entering password and submitting`);
         await page.fill('input[type="password"]', 'rbi-tech');
-        console.log(`[Step ${step++}] Clicking Submit`);
         await page.getByRole('button', { name: 'Submit' }).click();
-        await page.waitForTimeout(2000);
 
-        // 3. Handle Cookies Modal
-        let cookieBannerStillVisible = false;
-        try {
-          console.log(`[Step ${step++}] Trying to close cookie popup (close btn)`);
-          await page.waitForSelector('button[aria-label="Close"]', { timeout: 4000 });
-          await page.click('button[aria-label="Close"]');
-          await page.waitForTimeout(800);
-        } catch {
-          console.log('No cookie popup present or already closed.');
-        }
-        // Remove overlay if still present (and take screenshot)
-        await page.evaluate(() => {
-          const ot = document.getElementById('onetrust-consent-sdk');
-          if (ot) ot.remove();
-        });
-
-        // 4. Click Continue (Env screen)
-        try {
-          if (await page.isVisible('div[tabindex="0"]', { hasText: "Continue" })) {
+        // 3. Handle Cookies & Env Screen
+        await handleCookiePopup(page, step++);
+        
+        // Use locator to find and click "Continue", it will auto-wait.
+        const continueButton = page.getByRole('button', { name: 'Continue' });
+        if (await continueButton.isVisible()) {
             console.log(`[Step ${step++}] Clicking Continue on env screen`);
-            await page.getByText('Continue').click();
-            await page.waitForTimeout(1000);
-          }
-        } catch (e) {
-          console.log('No environment continue screen');
+            await continueButton.click();
+        } else {
+            console.log(`[Step ${step++}] No environment 'Continue' screen found.`);
         }
 
-        // --- Close Cookie Banner AGAIN if still visible (on Royal Perks) ---
-        try {
-          console.log(`[Step ${step++}] Double-checking/Closing cookie popup again if still visible...`);
-          await page.waitForSelector('button[aria-label="Close"]', { timeout: 2000 });
-          await page.click('button[aria-label="Close"]');
-          await page.waitForTimeout(800);
-        } catch {
-          console.log('Cookie modal did not reappear');
-        }
-        // Remove overlay (again)
-        await page.evaluate(() => {
-          const ot = document.getElementById('onetrust-consent-sdk');
-          if (ot) ot.remove();
-        });
-     
-
-        // 5. Click Profile Icon
+        // 4. Click Profile Icon
         console.log(`[Step ${step++}] Clicking Profile Icon`);
-        await page.waitForSelector('button[aria-label="Sign Up or Sign In"]', { timeout: 20000 });
-        await page.click('button[aria-label="Sign Up or Sign In"]');
-        await page.waitForTimeout(1000);
+        // Let Playwright's auto-wait handle this instead of fixed timeouts.
+        await page.getByRole('button', { name: 'Sign Up or Sign In' }).click();
 
-        // --- Close Cookie Banner AGAIN if still visible (just in case) ---
-        try {
-          console.log(`[Step ${step++}] (Final try) Closing cookie popup if STILL visible`);
-          await page.waitForSelector('button[aria-label="Close"]', { timeout: 2000 });
-          await page.click('button[aria-label="Close"]');
-          await page.waitForTimeout(800);
-        } catch {
-          // It's fine
-        }
-        await page.evaluate(() => {
-          const ot = document.getElementById('onetrust-consent-sdk');
-          if (ot) ot.remove();
-        });
-    
+        // 5. Handle potential cookie popup again
+        await handleCookiePopup(page, step++);
 
         // 6. Click "Continue with Email"
-        await page.waitForSelector('button[aria-label="Sign Up or Sign In"]', { timeout: 20000 });
-        await page.click('button[aria-label="Sign Up or Sign In"]');
-        await page.waitForTimeout(1000);
         console.log(`[Step ${step++}] Clicking Continue with Email`);
         await page.getByRole('button', { name: 'Continue with Email' }).click();
-        await page.waitForTimeout(1000);
   
-
         // 7. Enter unique email
-  
-      const rand = Math.floor(Math.random() * 1e8);
-      const email = `aiqatest${rand}@yopmail.com`;
-      console.log(`[Step ${step++}] Entering email: ${email}`);
-      await page.fill('input[type="email"]', email);
-
-
+        const rand = Math.floor(Math.random() * 1e8);
+        const email = `aiqatest${rand}@yopmail.com`;
+        console.log(`[Step ${step++}] Entering email: ${email}`);
+        await page.fill('input[type="email"]', email);
 
         // 8. Click "Sign Up / Sign In"
         console.log(`[Step ${step++}] Clicking Sign Up / Sign In`);
-        await page.click('button[data-testid="signin-button"]');
-        await page.waitForTimeout(1500);
+        await page.getByTestId('signin-button').click();
 
         // 9. Fill Name
         console.log(`[Step ${step++}] Filling name`);
-       await page.fill('input[data-testid="signup-name-input"]', 'RBI DO NOT MAKE');
+        await page.fill('input[data-testid="signup-name-input"]', 'RBI DO NOT MAKE');
 
         // 10. Check "I agree"
         console.log(`[Step ${step++}] Checking Agree To Terms`);
-        await page.click('div[data-testid="signup-agreeToTermsOfService"]');
-        await page.waitForTimeout(500);
+        await page.getByTestId('signup-agreeToTermsOfService').click();
 
         // 11. Click "Create an Account"
         console.log(`[Step ${step++}] Clicking Create an Account`);
         await page.getByRole('button', { name: 'Create an Account' }).click();
-        await page.waitForTimeout(2000);
+        
+        // Wait for navigation or a success indicator if possible. For now, a short wait is OK.
+        await page.waitForTimeout(1500);
 
-        emails.push(email);
-        console.log(`[DONE] Account created: ${email}`);
-        await browser.close();
+        successes.push(email);
+        console.log(`[SUCCESS] Account created: ${email}`);
+        await page.close(); // Close the page, not the browser
 
       } catch (err) {
-        // Error: Try to capture screenshot before closing browser
-        try {
-          if (!page.isClosed()) {
-            await page.screenshot({ path: `step${step}-ERROR.png` });
-          }
-        } catch (e) {
-          console.error('Screenshot error (after failure):', e.message);
+        // This catch block handles an error for a SINGLE account.
+        const errorMessage = `Failed to create account #${i + 1}: ${err.message}`;
+        console.error(errorMessage);
+        failures.push({ accountIndex: i + 1, error: errorMessage });
+        
+        if (!page.isClosed()) {
+            await page.screenshot({ path: `ERROR-Account-${i + 1}.png` });
+            await page.close();
         }
-        await browser.close();
-        throw err;
       }
-    }
+    } // End of for loop
 
-    res.json({ success: true, emails });
+    res.json({ success: true, successes, failures });
+
   } catch (err) {
-    // 1. Log the full technical error for developers in the Render logs
-    console.error('Signup agent failed:', err);
-    
-    // 2. Send a single, user-friendly error message to the frontend
+    // This outer catch block handles a major failure, like the browser failing to launch.
+    console.error('A critical error occurred in the signup agent:', err);
     res.status(500).json({ 
         success: false, 
-        error: "The automation agent failed. This could be due to a change in the website's UI or a network timeout. Please check the server logs for details." 
+        error: "The automation agent failed critically. Please check the server logs." 
     });
-}
+  } finally {
+      // FIX 8: Always ensure the browser is closed when the process is done.
+      if (browser) {
+          await browser.close();
+      }
+  }
 });
 
 // --- Playwright AI Code ---
