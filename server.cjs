@@ -1,10 +1,3 @@
-
-// --- THIS IS THE DEBUGGING CODE ---
-console.log("--- SERVER.CJS STARTING ---");
-console.log("Value of process.env.NODE_ENV:", process.env.NODE_ENV);
-console.log("Value of process.env.REDIS_URL:", process.env.REDIS_URL);
-console.log("---------------------------");
-
 const express = require('express');
 const { Queue, Job } = require('bullmq');
 const cors = require('cors');
@@ -33,7 +26,7 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 app.use(express.json());
-
+const REDIS_URL = "redis://red-d29m3t2li9vc73ftd970:6379";
 
 const queueConnection = { connection: process.env.REDIS_URL };
 
