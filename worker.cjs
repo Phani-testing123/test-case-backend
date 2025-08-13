@@ -7,7 +7,11 @@ const playwright = require('playwright');
 const dotenv = require('dotenv');
 
 // This line is important! It loads your .env file so the worker can find the Redis URL.
-dotenv.config();
+// --- THIS IS THE CRUCIAL FIX ---
+// Only run dotenv.config() in a non-production environment
+if (process.env.NODE_ENV !== 'production') {
+  dotenv.config();
+}
 
 // This is the function that contains ALL your Playwright automation logic.
 async function createSignupAccounts(count) {

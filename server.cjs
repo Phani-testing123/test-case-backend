@@ -6,7 +6,11 @@ const OpenAI = require('openai');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Anthropic = require('@anthropic-ai/sdk');
 
-dotenv.config();
+// --- THIS IS THE CRUCIAL FIX ---
+// Only run dotenv.config() in a non-production environment
+if (process.env.NODE_ENV !== 'production') {
+  dotenv.config();
+}
 
 const app = express();
 const PORT = process.env.PORT || 5000;
