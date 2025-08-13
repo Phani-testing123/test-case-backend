@@ -2,9 +2,10 @@
 // === This is the complete and correct code for worker.js       ===
 // =================================================================
 
-const { Worker } = require('bullmq');
+const { Worker /*, QueueScheduler*/ } = require('bullmq');
 const playwright = require('playwright');
 const dotenv = require('dotenv');
+const IORedis = require('ioredis'); 
 
 // This line is important! It loads your .env file so the worker can find the Redis URL.
 // --- THIS IS THE CRUCIAL FIX ---
@@ -181,6 +182,24 @@ console.log('WORKER: Worker process starting...');
 const REDIS_URL = "redis://red-d29m3t2li9vc73ftd970:6379";
 
 const workerConnection = { connection: process.env.REDIS_URL };
+
+// ---- ADD START: ensure BullMQ gets a real Redis connection ----
+const _redisConnStr = process.env.REDIS_URL || REDIS_URL;
+const _redis = new IORedis(_redisConnStr, {
+  maxRetriesPerRequest: null,
+  enableReadyCheck: false,
+  tls: _redisConnStr.startsWith('rediss://') ? {} : undefined,
+});
+
+// If workerConnection is missing or just a string, replace with ioredis instance
+if (!workerConnection.connection || typeof workerConnection.connection === 'string') {
+  workerConnection.connection = _redis;
+}
+// ---- ADD END ----
+
+// (Optional, only needed for delayed/retry jobs)
+// const { QueueScheduler } = require('bullmq');
+// new QueueScheduler('signup-jobs', { connection: workerConnection.connection });
 
 const worker = new Worker('signup-jobs', async (job) => {
   const { countToCreate } = job.data;

@@ -26,9 +26,23 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 app.use(express.json());
+
+
+/* ===================== REDIS CONNECTION (ADDED) ===================== */
+const IORedis = require('ioredis');
 const REDIS_URL = "redis://red-d29m3t2li9vc73ftd970:6379";
 
-const queueConnection = { connection: process.env.REDIS_URL };
+// Build a proper ioredis connection (use env if present else fallback)
+const _redisConnStr = process.env.REDIS_URL || REDIS_URL;
+const _redis = new IORedis(_redisConnStr, {
+  maxRetriesPerRequest: null,
+  enableReadyCheck: false,
+  tls: _redisConnStr.startsWith('rediss://') ? {} : undefined,
+});
+
+// Provide a BullMQ connection object and ensure it holds the ioredis instance
+const queueConnection = { connection: _redis };
+/* =================== END REDIS CONNECTION (ADDED) =================== */
 
 const signupQueue = new Queue('signup-jobs', queueConnection);
 
