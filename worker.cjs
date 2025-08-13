@@ -2,6 +2,13 @@
 // === This is the complete and correct code for worker.js       ===
 // =================================================================
 
+// --- THIS IS THE DEBUGGING CODE ---
+console.log("--- WORKER.CJS STARTING ---");
+console.log("Value of process.env.NODE_ENV:", process.env.NODE_ENV);
+console.log("Value of process.env.REDIS_URL:", process.env.REDIS_URL);
+console.log("---------------------------");
+// ----------------------------------
+
 const { Worker } = require('bullmq');
 const playwright = require('playwright');
 const dotenv = require('dotenv');

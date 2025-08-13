@@ -1,3 +1,10 @@
+
+// --- THIS IS THE DEBUGGING CODE ---
+console.log("--- SERVER.CJS STARTING ---");
+console.log("Value of process.env.NODE_ENV:", process.env.NODE_ENV);
+console.log("Value of process.env.REDIS_URL:", process.env.REDIS_URL);
+console.log("---------------------------");
+
 const express = require('express');
 const { Queue, Job } = require('bullmq');
 const cors = require('cors');
@@ -5,6 +12,8 @@ const dotenv = require('dotenv');
 const OpenAI = require('openai');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Anthropic = require('@anthropic-ai/sdk');
+
+
 
 // --- THIS IS THE CRUCIAL FIX ---
 // Only run dotenv.config() in a non-production environment
@@ -83,7 +92,7 @@ Only output the code for the Playwright test function. Do not explain your answe
     `;
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o', // Or gpt-3.5-turbo if you wish
+      model: 'gpt-5', // Or gpt-3.5-turbo if you wish
       messages: [{ role: 'user', content: prompt }]
     });
 
@@ -102,7 +111,7 @@ app.post('/generate-test-cases', async (req, res) => {
     if (!input) return res.status(400).json({ error: 'Input is required' });
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
+      model: 'gpt-5',
       messages: [{
         role: 'user',
         content: input
