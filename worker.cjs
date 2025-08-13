@@ -177,13 +177,14 @@ async function createSignupAccounts(count) {
 // === This is the code that defines the worker itself.         ===
 // =================================================================
 
+
 console.log('WORKER: Worker process starting...');
 
 const REDIS_URL = "redis://red-d29m3t2li9vc73ftd970:6379";
 
 const workerConnection = { connection: process.env.REDIS_URL };
 
-// ---- ADD START: ensure BullMQ gets a real Redis connection ----
+// ---- ADDED: ensure BullMQ gets a real Redis connection (no localhost fallback)
 const _redisConnStr = process.env.REDIS_URL || REDIS_URL;
 const _redis = new IORedis(_redisConnStr, {
   maxRetriesPerRequest: null,
@@ -195,11 +196,11 @@ const _redis = new IORedis(_redisConnStr, {
 if (!workerConnection.connection || typeof workerConnection.connection === 'string') {
   workerConnection.connection = _redis;
 }
-// ---- ADD END ----
 
 // (Optional, only needed for delayed/retry jobs)
 // const { QueueScheduler } = require('bullmq');
 // new QueueScheduler('signup-jobs', { connection: workerConnection.connection });
+
 
 const worker = new Worker('signup-jobs', async (job) => {
   const { countToCreate } = job.data;
@@ -219,3 +220,7 @@ worker.on('failed', (job, err) => {
 });
 
 console.log('WORKER: Ready and listening for jobs.');
+
+// (Optional) graceful shutdown for Redis (nice to have)
+process.on('SIGINT', async () => { try { await _redis.quit(); } finally { process.exit(0); } });
+process.on('SIGTERM', async () => { try { await _redis.quit(); } finally { process.exit(0); } });
