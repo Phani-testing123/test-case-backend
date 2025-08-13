@@ -9,6 +9,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.22.0",
     "@google/generative-ai": "^0.15.0",
+    "bullmq": "^5.56.9",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
