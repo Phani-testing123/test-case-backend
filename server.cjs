@@ -144,7 +144,7 @@ app.post('/generate-gemini-test-cases', async (req, res) => {
     const { input } = req.body;
     if (!input) return res.status(400).json({ error: 'Input is required' });
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
     const result = await model.generateContent(input);
     const text = result.response.text();
     res.json({ output: text });
@@ -161,7 +161,7 @@ app.post('/generate-claude-test-cases', async (req, res) => {
     if (!input) return res.status(400).json({ error: 'Input is required' });
 
     const msg = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20240620",
+      model: "claude-sonnet-4-20250514",
       max_tokens: 4096,
       messages: [{ role: "user", content: input }],
     });
