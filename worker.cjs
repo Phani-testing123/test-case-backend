@@ -14,6 +14,43 @@ if (process.env.NODE_ENV !== 'production') {
   dotenv.config();
 }
 
+// === Overlay Cleaner ===
+async function clearBlockingOverlays(page) {
+  try {
+    // Remove OneTrust cookie banner
+    await page.evaluate(() => {
+      const ot = document.getElementById('onetrust-consent-sdk');
+      if (ot) ot.remove();
+
+      // Remove large full-screen intercepting divs
+      document.querySelectorAll('div[tabindex="0"]').forEach(el => {
+        const r = el.getBoundingClientRect();
+        const coversScreen =
+          r.width >= window.innerWidth * 0.8 &&
+          r.height >= window.innerHeight * 0.8 &&
+          (getComputedStyle(el).position === 'fixed' || getComputedStyle(el).position === 'absolute');
+        if (coversScreen) el.remove();
+      });
+
+      // Remove big modal overlays
+      document.querySelectorAll('[role="dialog"], .ReactModal__Overlay, .modal, .overlay').forEach(el => {
+        const r = el.getBoundingClientRect();
+        if (r.width * r.height > 100000) el.remove();
+      });
+    });
+
+    // Close any visible close button
+    const closeBtn = page.locator('button[aria-label="Close"]');
+    if (await closeBtn.isVisible().catch(() => false)) {
+      await closeBtn.click({ timeout: 1000 }).catch(() => {});
+      await page.waitForTimeout(300);
+    }
+  } catch {
+    // No-op if nothing to clear
+  }
+}
+
+
 // This is the function that contains ALL your Playwright automation logic.
 async function createSignupAccounts(count) {
   console.log(`WORKER: Starting signup process for ${count} accounts...`);
@@ -28,6 +65,9 @@ async function createSignupAccounts(count) {
     for (let i = 0; i < (count || 1); i++) {
       // A new page is created for each account.
       const page = await browser.newPage();
+      page.setDefaultTimeout(45000);
+page.setDefaultNavigationTimeout(45000);
+
       let step = 1;
 
       // Your inner try/catch block to handle errors for a single account.
@@ -91,9 +131,16 @@ async function createSignupAccounts(count) {
      
         // 5. Click Profile Icon
         console.log(`WORKER: [Step ${step++}] Clicking Profile Icon`);
-        await page.waitForSelector('button[aria-label="Sign Up or Sign In"]', { timeout: 20000 });
-        await page.click('button[aria-label="Sign Up or Sign In"]');
-        await page.waitForTimeout(1000);
+       await clearBlockingOverlays(page);
+       const signBtn1 = page.locator('button[aria-label="Sign Up or Sign In"]');
+       await signBtn1.waitFor({ state: 'visible', timeout: 20000 });
+      try {
+       await signBtn1.click({ timeout: 10000 });
+       } catch (e) {
+      console.warn('Click intercepted (1st). Forcing click...', e.message);
+      await signBtn1.click({ force: true, timeout: 5000 });
+      }
+      await page.waitForTimeout(1000);
 
         // --- Close Cookie Banner AGAIN if still visible (just in case) ---
         try {
@@ -110,12 +157,22 @@ async function createSignupAccounts(count) {
         });
     
         // 6. Click "Continue with Email"
-        await page.waitForSelector('button[aria-label="Sign Up or Sign In"]', { timeout: 20000 });
-        await page.click('button[aria-label="Sign Up or Sign In"]');
-        await page.waitForTimeout(1000);
-        console.log(`WORKER: [Step ${step++}] Clicking Continue with Email`);
-        await page.getByRole('button', { name: 'Continue with Email' }).click();
-        await page.waitForTimeout(1000);
+await clearBlockingOverlays(page);
+
+const signBtn2 = page.locator('button[aria-label="Sign Up or Sign In"]');
+await signBtn2.waitFor({ state: 'visible', timeout: 20000 });
+try {
+  await signBtn2.click({ timeout: 10000 });
+} catch (e) {
+  console.warn('Click intercepted (2nd). Forcing click...', e.message);
+  await signBtn2.click({ force: true, timeout: 5000 });
+}
+await page.waitForTimeout(1000);
+
+console.log(`WORKER: [Step ${step++}] Clicking Continue with Email`);
+await page.getByRole('button', { name: 'Continue with Email' }).click();
+await page.waitForTimeout(1000);
+
   
         // 7. Enter unique email
         const rand = Math.floor(Math.random() * 1e8);
