@@ -7,9 +7,7 @@ const playwright = require('playwright');
 const dotenv = require('dotenv');
 const IORedis = require('ioredis'); 
 
-// This line is important! It loads your .env file so the worker can find the Redis URL.
-// --- THIS IS THE CRUCIAL FIX ---
-// Only run dotenv.config() in a non-production environment
+// Load .env only outside production
 if (process.env.NODE_ENV !== 'production') {
   dotenv.config();
 }
@@ -17,12 +15,11 @@ if (process.env.NODE_ENV !== 'production') {
 // === Overlay Cleaner ===
 async function clearBlockingOverlays(page) {
   try {
-    // Remove OneTrust cookie banner
+    // Remove OneTrust cookie banner + large overlays
     await page.evaluate(() => {
       const ot = document.getElementById('onetrust-consent-sdk');
       if (ot) ot.remove();
 
-      // Remove large full-screen intercepting divs
       document.querySelectorAll('div[tabindex="0"]').forEach(el => {
         const r = el.getBoundingClientRect();
         const coversScreen =
@@ -32,7 +29,6 @@ async function clearBlockingOverlays(page) {
         if (coversScreen) el.remove();
       });
 
-      // Remove big modal overlays
       document.querySelectorAll('[role="dialog"], .ReactModal__Overlay, .modal, .overlay').forEach(el => {
         const r = el.getBoundingClientRect();
         if (r.width * r.height > 100000) el.remove();
@@ -46,38 +42,126 @@ async function clearBlockingOverlays(page) {
       await page.waitForTimeout(300);
     }
   } catch {
-    // No-op if nothing to clear
+    // ignore
   }
 }
 
+/* ---------------- Env screen helpers ---------------- */
+function norm(s){ return String(s||'').toLowerCase().trim(); }
+function wantedEnv(env){ return norm(env)==='staging' ? 'staging' : 'dev'; }
+function wantedReg(reg){ return norm(reg)==='ca' ? 'ca' : 'us'; }
 
-// This is the function that contains ALL your Playwright automation logic.
-async function createSignupAccounts(count) {
-  console.log(`WORKER: Starting signup process for ${count} accounts...`);
+// Your concrete paths (priority clicks)
+const SELECTOR_STAGING = '#root > div > div > div:nth-child(4) > div.css-175oi2r.r-1awozwy.r-1q9bdsx.r-d045u9.r-1472mwg.r-1777fci.r-lrsllp';
+const SELECTOR_CA      = '#root > div > div > div:nth-child(8) > div.css-175oi2r.r-1awozwy.r-1q9bdsx.r-d045u9.r-1472mwg.r-1777fci.r-lrsllp';
+
+// Fallback select by visible text
+async function selectByText(page, text) {
+  const re = new RegExp(`\\b${text}\\b`, 'i');
+
+  // role=radio by name
+  const byRole = page.getByRole('radio', { name: re });
+  if (await byRole.count()) {
+    try { await byRole.first().check({ timeout: 800 }); }
+    catch { await byRole.first().click({ force: true, timeout: 800 }).catch(()=>{}); }
+    await page.waitForTimeout(150);
+    return true;
+  }
+
+  // label click
+  const byLabel = page.getByLabel(re);
+  if (await byLabel.count()) {
+    try { await byLabel.first().check({ timeout: 800 }); }
+    catch { await byLabel.first().click({ force: true, timeout: 800 }).catch(()=>{}); }
+    await page.waitForTimeout(150);
+    return true;
+  }
+
+  // generic label/container
+  const labelEl = page.locator('label, div, li, span').filter({ hasText: re });
+  if (await labelEl.count()) {
+    await labelEl.first().click({ timeout: 800 }).catch(async () => {
+      await labelEl.first().click({ force: true, timeout: 800 }).catch(()=>{});
+    });
+    await page.waitForTimeout(150);
+    return true;
+  }
+  return false;
+}
+
+// Verify selected via "(current)" or aria-checked/checked near text
+async function verifySelected(page, text) {
+  const reCurrent = new RegExp(`${text}\\s*\\(current\\)`, 'i');
+  if (await page.getByText(reCurrent).count().catch(()=>0)) return true;
+
+  const ok = await page.evaluate((t) => {
+    const txt = String(t).toLowerCase();
+    const nodes = Array.from(document.querySelectorAll('label, li, div, span'));
+    for (const n of nodes) {
+      if ((n.textContent || '').toLowerCase().includes(txt)) {
+        const r = n.querySelector('[role="radio"][aria-checked="true"]') ||
+                  n.querySelector('input[type="radio"]:checked');
+        if (r) return true;
+      }
+    }
+    return false;
+  }, text);
+  return !!ok;
+}
+
+// === NEW: only selects radios; uses your ORIGINAL Continue logic afterwards
+async function selectEnvAndRegionRadios(page, { environment = "dev", region = "US" } = {}) {
+  const envTarget = wantedEnv(environment); // 'staging' | 'dev'
+  const regTarget = wantedReg(region);      // 'ca' | 'us'
+
+  // Priority selectors for staging / CA
+  if (envTarget === 'staging') {
+    const st = page.locator(SELECTOR_STAGING);
+    if (await st.count()) {
+      await st.scrollIntoViewIfNeeded().catch(()=>{});
+      await st.click({ timeout: 800 }).catch(async ()=>{ await st.click({ force: true, timeout: 800 }).catch(()=>{}); });
+      await page.waitForTimeout(150);
+    } else {
+      await selectByText(page, 'staging');
+    }
+  } else {
+    await selectByText(page, 'dev');
+  }
+
+  if (regTarget === 'ca') {
+    const ca = page.locator(SELECTOR_CA);
+    if (await ca.count()) {
+      await ca.scrollIntoViewIfNeeded().catch(()=>{});
+      await ca.click({ timeout: 800 }).catch(async ()=>{ await ca.click({ force: true, timeout: 800 }).catch(()=>{}); });
+      await page.waitForTimeout(150);
+    } else {
+      await selectByText(page, 'CA');
+    }
+  } else {
+    await selectByText(page, 'US');
+  }
+
+  // Best-effort verification (non-blocking)
+  await verifySelected(page, envTarget === 'staging' ? 'staging' : 'dev').catch(()=>{});
+  await verifySelected(page, regTarget === 'ca' ? 'CA' : 'US').catch(()=>{});
+}
+
+// === Main Playwright automation ===
+async function createSignupAccounts(count, environment = "dev", region = "US") {
+  console.log(`WORKER: Starting signup process for ${count} accounts... (env=${environment}, region=${region})`);
   const successes = [];
   const failures = [];
 
-  // Launch the browser ONCE for better performance.
   const browser = await playwright.chromium.launch({ headless: true });
-  
   try {
-    // This is your for loop, unchanged.
     for (let i = 0; i < (count || 1); i++) {
-      // A new page is created for each account.
       const page = await browser.newPage();
       page.setDefaultTimeout(45000);
-page.setDefaultNavigationTimeout(45000);
+      page.setDefaultNavigationTimeout(45000);
 
       let step = 1;
-
-      // Your inner try/catch block to handle errors for a single account.
       try {
         console.log(`WORKER: --- Creating Account #${i + 1} ---`);
-        
-        // =================================================================
-        // === Your exact Playwright automation code starts here.        ===
-        // === No selectors or logic have been changed.                  ===
-        // =================================================================
 
         // 1. Open Dev URL
         console.log(`WORKER: [Step ${step++}] Opening URL`);
@@ -104,15 +188,47 @@ page.setDefaultNavigationTimeout(45000);
           if (ot) ot.remove();
         });
 
-        // 4. Click Continue (Env screen)
+        // 4. ENV/REGION SCREEN — select radios, then use ORIGINAL Continue logic, accept dialog if it appears
         try {
-          if (await page.isVisible('div[tabindex="0"]', { hasText: "Continue" })) {
-            console.log(`WORKER: [Step ${step++}] Clicking Continue on env screen`);
-            await page.getByText('Continue').click();
-            await page.waitForTimeout(1000);
+          const radiosExist = await page.getByRole('radio').count().catch(()=>0);
+          const hdrExists = await page.getByText(/select an environment/i).count().catch(()=>0);
+          if (radiosExist || hdrExists) {
+            console.log(`WORKER: [Step ${step++}] Selecting env/region radios`);
+            await selectEnvAndRegionRadios(page, { environment, region });
+
+            console.log(`WORKER: [Step ${step++}] Clicking Continue on env screen (original logic)`);
+            const overlayWithContinue = page.locator('div[tabindex="0"]').filter({ hasText: 'Continue' });
+            const visible = await overlayWithContinue.first().isVisible().catch(()=>false);
+
+            if (visible) {
+              // Arm dialog handler BEFORE clicking Continue
+              const dialogAccepted = new Promise((resolve) => {
+                const handler = async (dialog) => {
+                  try { await dialog.accept(); }
+                  finally { page.off('dialog', handler); resolve('accepted'); }
+                };
+                page.on('dialog', handler);
+                setTimeout(() => resolve('no-dialog'), 7000);
+              });
+
+              await page.getByText('Continue').click();
+              await page.waitForTimeout(1000);
+
+              const res = await dialogAccepted.catch(()=> 'no-dialog');
+              if (res === 'accepted') {
+                await page.waitForLoadState('domcontentloaded', { timeout: 25000 }).catch(()=>{});
+                await page.waitForLoadState('networkidle', { timeout: 12000 }).catch(()=>{});
+                await page.waitForTimeout(500);
+                console.log('WORKER: Confirm accepted; app reloaded with new env/region.');
+              } else {
+                console.log('WORKER: No confirm dialog; continued.');
+              }
+            } else {
+              console.log('WORKER: Original Continue overlay not visible; skipping click.');
+            }
           }
         } catch (e) {
-          console.log('WORKER: No environment continue screen');
+          console.log('WORKER: Env/Region handling encountered an issue:', e?.message || e);
         }
 
         // --- Close Cookie Banner AGAIN if still visible (on Royal Perks) ---
@@ -129,51 +245,45 @@ page.setDefaultNavigationTimeout(45000);
           if (ot) ot.remove();
         });
      
-        // 5. Click Profile Icon
+        // 5. Click Profile Icon (unchanged but with overlay clear)
         console.log(`WORKER: [Step ${step++}] Clicking Profile Icon`);
-       await clearBlockingOverlays(page);
-       const signBtn1 = page.locator('button[aria-label="Sign Up or Sign In"]');
-       await signBtn1.waitFor({ state: 'visible', timeout: 20000 });
-      try {
-       await signBtn1.click({ timeout: 10000 });
-       } catch (e) {
-      console.warn('Click intercepted (1st). Forcing click...', e.message);
-      await signBtn1.click({ force: true, timeout: 5000 });
-      }
-      await page.waitForTimeout(1000);
+        await clearBlockingOverlays(page);
+        const signBtn1 = page.locator('button[aria-label="Sign Up or Sign In"]');
+        await signBtn1.waitFor({ state: 'visible', timeout: 20000 });
+        try { await signBtn1.click({ timeout: 10000 }); }
+        catch (e) {
+          console.warn('Click intercepted (1st). Forcing click...', e.message);
+          await signBtn1.click({ force: true, timeout: 5000 });
+        }
+        await page.waitForTimeout(1000);
 
-        // --- Close Cookie Banner AGAIN if still visible (just in case) ---
+        // --- Cookie again if needed ---
         try {
           console.log(`WORKER: [Step ${step++}] (Final try) Closing cookie popup if STILL visible`);
           await page.waitForSelector('button[aria-label="Close"]', { timeout: 2000 });
           await page.click('button[aria-label="Close"]');
           await page.waitForTimeout(800);
-        } catch {
-          // It's fine
-        }
+        } catch {}
         await page.evaluate(() => {
           const ot = document.getElementById('onetrust-consent-sdk');
           if (ot) ot.remove();
         });
     
         // 6. Click "Continue with Email"
-await clearBlockingOverlays(page);
+        await clearBlockingOverlays(page);
+        const signBtn2 = page.locator('button[aria-label="Sign Up or Sign In"]');
+        await signBtn2.waitFor({ state: 'visible', timeout: 20000 });
+        try { await signBtn2.click({ timeout: 10000 }); }
+        catch (e) {
+          console.warn('Click intercepted (2nd). Forcing click...', e.message);
+          await signBtn2.click({ force: true, timeout: 5000 });
+        }
+        await page.waitForTimeout(1000);
 
-const signBtn2 = page.locator('button[aria-label="Sign Up or Sign In"]');
-await signBtn2.waitFor({ state: 'visible', timeout: 20000 });
-try {
-  await signBtn2.click({ timeout: 10000 });
-} catch (e) {
-  console.warn('Click intercepted (2nd). Forcing click...', e.message);
-  await signBtn2.click({ force: true, timeout: 5000 });
-}
-await page.waitForTimeout(1000);
+        console.log(`WORKER: [Step ${step++}] Clicking Continue with Email`);
+        await page.getByRole('button', { name: 'Continue with Email' }).click();
+        await page.waitForTimeout(1000);
 
-console.log(`WORKER: [Step ${step++}] Clicking Continue with Email`);
-await page.getByRole('button', { name: 'Continue with Email' }).click();
-await page.waitForTimeout(1000);
-
-  
         // 7. Enter unique email
         const rand = Math.floor(Math.random() * 1e8);
         const email = `aiqatest${rand}@yopmail.com`;
@@ -206,7 +316,6 @@ await page.waitForTimeout(1000);
         const errorMessage = `Failed on account #${i + 1}: ${err.message}`;
         console.error(`WORKER: [FAILURE] ${errorMessage}`);
         failures.push({ accountIndex: i + 1, error: errorMessage });
-        
         try {
           if (!page.isClosed()) {
             await page.screenshot({ path: `ERROR-Account-${i + 1}.png` });
@@ -225,7 +334,7 @@ await page.waitForTimeout(1000);
     console.log("WORKER: Failed Accounts:", failures);
   }
 
-  // ADDED: This returns the final results so they can be saved with the job.
+  // return results for job status API
   return { successes, failures };
 }
 
@@ -234,14 +343,13 @@ await page.waitForTimeout(1000);
 // === This is the code that defines the worker itself.         ===
 // =================================================================
 
-
 console.log('WORKER: Worker process starting...');
 
 const REDIS_URL = "redis://red-d29m3t2li9vc73ftd970:6379";
 
 const workerConnection = { connection: process.env.REDIS_URL };
 
-// ---- ADDED: ensure BullMQ gets a real Redis connection (no localhost fallback)
+// ensure BullMQ gets a real Redis connection
 const _redisConnStr = process.env.REDIS_URL || REDIS_URL;
 const _redis = new IORedis(_redisConnStr, {
   maxRetriesPerRequest: null,
@@ -249,22 +357,23 @@ const _redis = new IORedis(_redisConnStr, {
   tls: _redisConnStr.startsWith('rediss://') ? {} : undefined,
 });
 
-// If workerConnection is missing or just a string, replace with ioredis instance
 if (!workerConnection.connection || typeof workerConnection.connection === 'string') {
   workerConnection.connection = _redis;
 }
 
-// (Optional, only needed for delayed/retry jobs)
 // const { QueueScheduler } = require('bullmq');
 // new QueueScheduler('signup-jobs', { connection: workerConnection.connection });
 
-
 const worker = new Worker('signup-jobs', async (job) => {
-  const { countToCreate } = job.data;
-  console.log(`WORKER: Received job ${job.id}. Will create ${countToCreate} accounts.`);
+  const { countToCreate, environment, region } = {
+    countToCreate: Number(job.data.countToCreate ?? job.data.count ?? 1) || 1,
+    environment: job.data.environment || job.data.env || job.data.payload?.environment || 'dev',
+    region: job.data.region || job.data.reg || job.data.payload?.region || 'US',
+  };
 
-  // ADDED: The 'return' here saves the result from createSignupAccounts to the job.
-  return await createSignupAccounts(countToCreate);
+  console.log(`WORKER: Received job ${job.id}. Will create ${countToCreate} accounts (env=${environment}, region=${region}).`);
+
+  return await createSignupAccounts(countToCreate, environment, region);
 
 }, { ...workerConnection, concurrency: 1 });
 
@@ -278,6 +387,6 @@ worker.on('failed', (job, err) => {
 
 console.log('WORKER: Ready and listening for jobs.');
 
-// (Optional) graceful shutdown for Redis (nice to have)
+// graceful shutdown for Redis
 process.on('SIGINT', async () => { try { await _redis.quit(); } finally { process.exit(0); } });
 process.on('SIGTERM', async () => { try { await _redis.quit(); } finally { process.exit(0); } });
