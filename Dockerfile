@@ -1,5 +1,5 @@
 # Use the official Microsoft Playwright image which includes all browser dependencies
-FROM mcr.microsoft.com/playwright:v1.54.2-jammy
+FROM mcr.microsoft.com/playwright:v1.55.0-jammy
 
 # --- THIS IS THE CRUCIAL LINE TO ADD ---
 # Sets the environment variable to 'production' inside the container.
